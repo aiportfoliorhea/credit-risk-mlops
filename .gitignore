@@ -1,0 +1,4 @@
+/venv-mlops
+data/
+mlruns/
+*.zip

@@ -6,6 +6,7 @@
 
 # skew = X.select_dtypes(include=['float64', 'int64']).skew().sort_values(ascending=False)
 # print(skew.head(10))
+# print(X_train['DEF_30_CNT_SOCIAL_CIRCLE'].value_counts().head(10))
 
 # print(df.isnull().sum().sort_values(ascending=False).head(20))
 

@@ -1,3 +1,5 @@
+import time
+
 import pandas as pd
 from sklearn.pipeline import Pipeline
 import xgboost as xgb
@@ -100,9 +102,16 @@ pipeline = Pipeline([
 
 
 with mlflow.start_run():
-    pipeline.fit(X_train, y_train)
-    
-    y_pred_proba = pipeline.predict_proba(X_test)[:, 1]
+    start = time.time()
+    X_train_transformed = preprocessor.fit_transform(X_train, y_train)
+    X_test_transformed = preprocessor.transform(X_test)
+    print(f"Preprocessing: {time.time() - start:.2f}s")
+
+    start = time.time()
+    model = xgb.XGBClassifier(n_estimators=500, max_depth=8, random_state=42, scale_pos_weight=(y_train==0).sum()/(y_train==1).sum())
+    model.fit(X_train_transformed, y_train)
+    print(f"XGBoost fit only: {time.time() - start:.2f}s")
+    y_pred_proba = model.predict_proba(X_test_transformed)[:, 1]
     test_auc = roc_auc_score(y_test, y_pred_proba)
     
     mlflow.log_param("n_estimators", 100)
@@ -110,7 +119,6 @@ with mlflow.start_run():
     mlflow.log_param("scale_pos_weight", "auto")
     mlflow.log_param("encoding", "WoE")
     mlflow.log_param("log_transform", "AMT_INCOME_TOTAL, AMT_REQ_CREDIT_BUREAU_QRT, AMT_REQ_CREDIT_BUREAU_DAY, AMT_REQ_CREDIT_BUREAU_HOUR, AMT_REQ_CREDIT_BUREAU_WEEK, AMT_REQ_CREDIT_BUREAU_MON, OBS_30_CNT_SOCIAL_CIRCLE, OBS_60_CNT_SOCIAL_CIRCLE")
-    mlflow.sklearn.log_model(pipeline, artifact_path="pipeline")
+    mlflow.sklearn.log_model(model, name="model")
     mlflow.log_metric("test_auc", test_auc)
-    
     print(f"Test AUC: {test_auc:.4f}")

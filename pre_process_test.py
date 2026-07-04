@@ -17,3 +17,17 @@
 # Flag document columns
 # flag_cols = [c for c in df.columns if 'FLAG_DOCUMENT' in c]
 # print(df[flag_cols].mean().sort_values())
+
+# print(f"Categorical: {len(cat_cols)}")
+# print(f"Numeric: {len(num_cols)}")
+# print(f"Log transform: {log_cols}")
+
+# for cat in cat_cols:
+#     cross = pd.crosstab(X_train[cat], y_train)
+#     zero_cols = (cross == 0).any(axis=1)
+#     if zero_cols.any():
+#         print(f"\n{cat}:")
+#         print(cross[zero_cols])
+
+# print(X_train['NAME_INCOME_TYPE'].value_counts(normalize=True))
+# print(X_train['NAME_FAMILY_STATUS'].value_counts(normalize=True))

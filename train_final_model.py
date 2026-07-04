@@ -37,8 +37,30 @@ X_test = X_test.reset_index(drop=True)
 y_train = y_train.reset_index(drop=True)
 y_test = y_test.reset_index(drop=True)
 
-cat_cols = X_train.select_dtypes(include=['object']).columns.tolist()
-num_cols = X_train.select_dtypes(include=['number']).columns.tolist()
+# ---- Carve val split out of RAW X_train, BEFORE the preprocessor is fit ----
+# This must happen before preprocessor.fit_transform, otherwise WoE (a
+# supervised encoder) leaks y_train's target information into X_val's
+# encoding, since X_val is a subset of the data WoE was fit on.
+X_tr_raw, X_val_raw, y_tr, y_val = tts(
+    X_train, y_train, test_size=0.15, stratify=y_train, random_state=42
+)
+X_tr_raw = X_tr_raw.reset_index(drop=True)
+X_val_raw = X_val_raw.reset_index(drop=True)
+y_tr = y_tr.reset_index(drop=True)
+y_val = y_val.reset_index(drop=True)
+
+# Merge rare ORGANIZATION_TYPE categories (< 100 rows in full X_train) into
+# the dominant category. Below this threshold, expected event count after
+# the 85/15 val split gets too close to zero for WoE to compute reliably.
+org_counts = X_train['ORGANIZATION_TYPE'].value_counts()
+rare_orgs = org_counts[org_counts < 100].index.tolist()
+dominant_org = org_counts.idxmax()  # 'Business Entity Type 3'
+
+for split_df in (X_tr_raw, X_val_raw, X_test):
+    split_df['ORGANIZATION_TYPE'] = split_df['ORGANIZATION_TYPE'].replace(rare_orgs, dominant_org)
+
+cat_cols = X_tr_raw.select_dtypes(include=['object']).columns.tolist()
+num_cols = X_tr_raw.select_dtypes(include=['number']).columns.tolist()
 log_cols = [
     'AMT_INCOME_TOTAL', 'AMT_REQ_CREDIT_BUREAU_QRT', 'AMT_REQ_CREDIT_BUREAU_DAY',
     'AMT_REQ_CREDIT_BUREAU_HOUR', 'AMT_REQ_CREDIT_BUREAU_WEEK', 'AMT_REQ_CREDIT_BUREAU_MON',
@@ -62,7 +84,10 @@ preprocessor = ColumnTransformer([
     ('log', log_transformer, log_cols),
 ], remainder='passthrough')
 
-X_train_transformed = preprocessor.fit_transform(X_train, y_train)
+
+# Fit ONLY on X_tr_raw + y_tr — X_val and X_test are transform-only.
+X_tr_transformed = preprocessor.fit_transform(X_tr_raw, y_tr)
+X_val_transformed = preprocessor.transform(X_val_raw)
 X_test_transformed = preprocessor.transform(X_test)
 
 best_params = {
@@ -75,12 +100,6 @@ best_params = {
     'gamma': 2.3196,
 }
 
-# Carve a validation split out of X_train for early stopping only.
-# X_test remains fully untouched for final evaluation.
-X_tr, X_val, y_tr, y_val = tts(
-    X_train_transformed, y_train, test_size=0.15, stratify=y_train, random_state=42
-)
-
 with mlflow.start_run():
     model = xgb.XGBClassifier(
         **best_params,
@@ -89,7 +108,7 @@ with mlflow.start_run():
         eval_metric='auc',
         early_stopping_rounds=20,
     )
-    model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False)
+    model.fit(X_tr_transformed, y_tr, eval_set=[(X_val_transformed, y_val)], verbose=False)
 
     y_pred_proba = model.predict_proba(X_test_transformed)[:, 1]
     test_auc = roc_auc_score(y_test, y_pred_proba)

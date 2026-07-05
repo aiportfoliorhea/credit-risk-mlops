@@ -10,35 +10,15 @@ from sklearn.impute import SimpleImputer
 from feature_engine.encoding import WoEEncoder
 import numpy as np
 from sklearn.preprocessing import FunctionTransformer
+from prepare_dataset import prepare_data
 
 # ---- Data loading + cleaning (same as pipeline.py) ----
-df = pd.read_csv('data/application_train.csv')
-df = df[df['CODE_GENDER'] != 'XNA']
-df = df.drop(columns=['OWN_CAR_AGE'])
-flag_doc_drop = [c for c in df.columns if 'FLAG_DOCUMENT' in c and c not in ['FLAG_DOCUMENT_3', 'FLAG_DOCUMENT_6', 'FLAG_DOCUMENT_8']]
-df = df.drop(columns=flag_doc_drop)
-avg_medi_drop = [c for c in df.columns if c.endswith('_AVG') or c.endswith('_MEDI')]
-df = df.drop(columns=avg_medi_drop)
-df = df[df['CODE_GENDER'] != 'XNA'].reset_index(drop=True)
-
-X = df.drop(columns=['TARGET', 'SK_ID_CURR'])
-y = df['TARGET']
-
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-rare_income = ['Unemployed', 'Student', 'Businessman', 'Maternity leave']
-X_train['NAME_INCOME_TYPE'] = X_train['NAME_INCOME_TYPE'].replace(rare_income, 'Working')
-X_test['NAME_INCOME_TYPE'] = X_test['NAME_INCOME_TYPE'].replace(rare_income, 'Working')
-X_train['NAME_FAMILY_STATUS'] = X_train['NAME_FAMILY_STATUS'].replace('Unknown', 'Married')
-X_test['NAME_FAMILY_STATUS'] = X_test['NAME_FAMILY_STATUS'].replace('Unknown', 'Married')
-
-X_train = X_train.reset_index(drop=True)
-X_test = X_test.reset_index(drop=True)
-y_train = y_train.reset_index(drop=True)
-y_test = y_test.reset_index(drop=True)
+X_train, X_test, y_train, y_test = prepare_data(merge_rare_org=True)
+X_train['NAME_EDUCATION_TYPE'] = X_train['NAME_EDUCATION_TYPE'].replace('Academic degree', 'Higher education')
+X_test['NAME_EDUCATION_TYPE'] = X_test['NAME_EDUCATION_TYPE'].replace('Academic degree', 'Higher education')
 
 # ---- Carve val split out of RAW X_train, BEFORE the preprocessor is fit ----
-# This must happen before preprocessor.fit_transform, otherwise WoE (a
+# This must happen before preprocessor.fit_transforsm, otherwise WoE (a
 # supervised encoder) leaks y_train's target information into X_val's
 # encoding, since X_val is a subset of the data WoE was fit on.
 X_tr_raw, X_val_raw, y_tr, y_val = tts(
@@ -48,16 +28,6 @@ X_tr_raw = X_tr_raw.reset_index(drop=True)
 X_val_raw = X_val_raw.reset_index(drop=True)
 y_tr = y_tr.reset_index(drop=True)
 y_val = y_val.reset_index(drop=True)
-
-# Merge rare ORGANIZATION_TYPE categories (< 100 rows in full X_train) into
-# the dominant category. Below this threshold, expected event count after
-# the 85/15 val split gets too close to zero for WoE to compute reliably.
-org_counts = X_train['ORGANIZATION_TYPE'].value_counts()
-rare_orgs = org_counts[org_counts < 100].index.tolist()
-dominant_org = org_counts.idxmax()  # 'Business Entity Type 3'
-
-for split_df in (X_tr_raw, X_val_raw, X_test):
-    split_df['ORGANIZATION_TYPE'] = split_df['ORGANIZATION_TYPE'].replace(rare_orgs, dominant_org)
 
 cat_cols = X_tr_raw.select_dtypes(include=['object']).columns.tolist()
 num_cols = X_tr_raw.select_dtypes(include=['number']).columns.tolist()
@@ -91,13 +61,13 @@ X_val_transformed = preprocessor.transform(X_val_raw)
 X_test_transformed = preprocessor.transform(X_test)
 
 best_params = {
-    'max_depth': 3,
-    'learning_rate': 0.08,
-    'n_estimators': 385,
-    'min_child_weight': 7,
-    'subsample': 0.9302,
-    'colsample_bytree': 0.8143,
-    'gamma': 2.3196,
+    'max_depth': 4,
+    'learning_rate': 0.06737183618738984,
+    'n_estimators': 367,
+    'min_child_weight': 3,
+    'subsample': 0.9168573022447767,
+    'colsample_bytree': 0.6261468385267863,
+    'gamma': 3.6165632755467034,
 }
 
 with mlflow.start_run():
@@ -122,5 +92,5 @@ with mlflow.start_run():
     mlflow.sklearn.log_model(model, name="model")
     mlflow.log_metric("test_auc", test_auc)
     mlflow.log_metric("val_auc_best_iter", model.best_score)
-    print(f"Best iteration: {model.best_iteration} / 385 ceiling")
+    print(f"Best iteration: {model.best_iteration} / {best_params['n_estimators']} ceiling")
     print(f"Test AUC: {test_auc:.4f}")

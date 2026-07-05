@@ -1,6 +1,7 @@
 import time
-import pandas as pd
+
 import numpy as np
+from prepare_dataset import prepare_data
 import xgboost as xgb
 import optuna
 from sklearn.pipeline import Pipeline
@@ -12,30 +13,9 @@ from sklearn.preprocessing import FunctionTransformer
 from feature_engine.encoding import WoEEncoder
 
 # ---- Data loading + cleaning (same as pipeline.py) ----
-df = pd.read_csv('data/application_train.csv')
-df = df[df['CODE_GENDER'] != 'XNA']
-df = df.drop(columns=['OWN_CAR_AGE'])
-flag_doc_drop = [c for c in df.columns if 'FLAG_DOCUMENT' in c and c not in ['FLAG_DOCUMENT_3', 'FLAG_DOCUMENT_6', 'FLAG_DOCUMENT_8']]
-df = df.drop(columns=flag_doc_drop)
-avg_medi_drop = [c for c in df.columns if c.endswith('_AVG') or c.endswith('_MEDI')]
-df = df.drop(columns=avg_medi_drop)
-df = df[df['CODE_GENDER'] != 'XNA'].reset_index(drop=True)
-
-X = df.drop(columns=['TARGET', 'SK_ID_CURR'])
-y = df['TARGET']
-
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-rare_income = ['Unemployed', 'Student', 'Businessman', 'Maternity leave']
-X_train['NAME_INCOME_TYPE'] = X_train['NAME_INCOME_TYPE'].replace(rare_income, 'Working')
-X_test['NAME_INCOME_TYPE'] = X_test['NAME_INCOME_TYPE'].replace(rare_income, 'Working')
-X_train['NAME_FAMILY_STATUS'] = X_train['NAME_FAMILY_STATUS'].replace('Unknown', 'Married')
-X_test['NAME_FAMILY_STATUS'] = X_test['NAME_FAMILY_STATUS'].replace('Unknown', 'Married')
-
-X_train = X_train.reset_index(drop=True)
-X_test = X_test.reset_index(drop=True)
-y_train = y_train.reset_index(drop=True)
-y_test = y_test.reset_index(drop=True)
+X_train, X_test, y_train, y_test = prepare_data(merge_rare_org=True)
+X_train['NAME_EDUCATION_TYPE'] = X_train['NAME_EDUCATION_TYPE'].replace('Academic degree', 'Higher education')
+X_test['NAME_EDUCATION_TYPE'] = X_test['NAME_EDUCATION_TYPE'].replace('Academic degree', 'Higher education')
 
 cat_cols = X_train.select_dtypes(include=['object']).columns.tolist()
 num_cols = X_train.select_dtypes(include=['number']).columns.tolist()
@@ -62,8 +42,7 @@ preprocessor = ColumnTransformer([
     ('log', log_transformer, log_cols),
 ], remainder='passthrough')
 
-X_train_transformed = preprocessor.fit_transform(X_train, y_train)
-X_test_transformed = preprocessor.transform(X_test)
+
 
 # ---- Optuna objective ----
 def objective(trial):
@@ -81,9 +60,28 @@ def objective(trial):
     skf = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
     auc_scores = []
 
-    for train_idx, val_idx in skf.split(X_train_transformed, y_train):
-        X_tr, X_val = X_train_transformed[train_idx], X_train_transformed[val_idx]
-        y_tr, y_val = y_train.iloc[train_idx], y_train.iloc[val_idx]
+    # Split on raw X_train/y_train (DataFrame/Series), NOT the pre-transformed
+    # array. Fold indices must select from unencoded data so the preprocessor
+    # can be fit fresh on each fold's train portion only.
+    for train_idx, val_idx in skf.split(X_train, y_train):
+        X_tr_raw = X_train.iloc[train_idx]
+        X_val_raw = X_train.iloc[val_idx]
+        y_tr = y_train.iloc[train_idx]
+        y_val = y_train.iloc[val_idx]
+
+        # Rebuild + refit preprocessor on THIS fold's train data only.
+        # cat_cols/num_cols/log_cols are fixed column-name lists computed
+        # once outside the loop (schema doesn't change per fold), but the
+        # transformer objects themselves must be fresh per fold — WoE
+        # statistics are supervised and must never see val_idx rows.
+        fold_preprocessor = ColumnTransformer([
+            ('num', numeric_transformer, num_cols),
+            ('cat', categorical_transformer, cat_cols),
+            ('log', log_transformer, log_cols),
+        ], remainder='passthrough')
+
+        X_tr = fold_preprocessor.fit_transform(X_tr_raw, y_tr)
+        X_val = fold_preprocessor.transform(X_val_raw)
 
         scale_pos_weight = (y_tr == 0).sum() / (y_tr == 1).sum()
 

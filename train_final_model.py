@@ -61,16 +61,16 @@ X_val_transformed = preprocessor.transform(X_val_raw)
 X_test_transformed = preprocessor.transform(X_test)
 
 best_params = {
-    'max_depth': 4,
-    'learning_rate': 0.06737183618738984,
-    'n_estimators': 367,
-    'min_child_weight': 3,
-    'subsample': 0.9168573022447767,
-    'colsample_bytree': 0.6261468385267863,
-    'gamma': 3.6165632755467034,
+    'max_depth': 3,
+    'learning_rate': 0.08,
+    'n_estimators': 385,
+    'min_child_weight': 7,
+    'subsample': 0.9302,
+    'colsample_bytree': 0.8143,
+    'gamma': 2.3196,
 }
 
-with mlflow.start_run():
+with mlflow.start_run(run_name="final_model_maxdepth3"):
     model = xgb.XGBClassifier(
         **best_params,
         random_state=42,

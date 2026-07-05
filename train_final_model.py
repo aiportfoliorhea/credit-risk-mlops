@@ -77,7 +77,7 @@ feature_engg_best_params = {
     'gamma': 0.6781890863887554
 }
 
-# updated n-estimators to 800 ft engg updated numbers
+# updated n-estimators to 800 with feature engineering updated numbers
 # Best params: {'max_depth': 3, 'learning_rate': 0.09964034718600043, 'n_estimators': 377, 'min_child_weight': 8, 'subsample': 0.9742636936312206, 'colsample_bytree': 0.6050501389679301, 'gamma': 2.034350998305848}
 
 with mlflow.start_run(run_name="feature_engg_best_param"):

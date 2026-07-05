@@ -1,5 +1,6 @@
 import time
 
+from flask import json
 import numpy as np
 from prepare_dataset import prepare_data
 import xgboost as xgb
@@ -13,9 +14,7 @@ from sklearn.preprocessing import FunctionTransformer
 from feature_engine.encoding import WoEEncoder
 
 # ---- Data loading + cleaning (same as pipeline.py) ----
-X_train, X_test, y_train, y_test = prepare_data(merge_rare_org=True)
-X_train['NAME_EDUCATION_TYPE'] = X_train['NAME_EDUCATION_TYPE'].replace('Academic degree', 'Higher education')
-X_test['NAME_EDUCATION_TYPE'] = X_test['NAME_EDUCATION_TYPE'].replace('Academic degree', 'Higher education')
+X_train, X_test, y_train, y_test = prepare_data(merge_rare_fields_across_cat=True)
 
 cat_cols = X_train.select_dtypes(include=['object']).columns.tolist()
 num_cols = X_train.select_dtypes(include=['number']).columns.tolist()
@@ -36,23 +35,15 @@ log_transformer = Pipeline([
     ('log', FunctionTransformer(np.log1p, validate=False)),
 ])
 
-preprocessor = ColumnTransformer([
-    ('num', numeric_transformer, num_cols),
-    ('cat', categorical_transformer, cat_cols),
-    ('log', log_transformer, log_cols),
-], remainder='passthrough')
-
-
-
 # ---- Optuna objective ----
 def objective(trial):
     params = {
         'max_depth': trial.suggest_int('max_depth', 3, 7),
         'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3, log=True),
-        'n_estimators': trial.suggest_int('n_estimators', 100, 400),
+        'n_estimators': trial.suggest_int('n_estimators', 100, 600),
         'min_child_weight': trial.suggest_int('min_child_weight', 1, 10),
         'subsample': trial.suggest_float('subsample', 0.6, 1.0),
-        'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+        'colsample_bytree': trial.suggest_float('colsample_bytree', 0.4, 1.0),
         'gamma': trial.suggest_float('gamma', 0, 5),
         'random_state': 42,
     }
@@ -99,8 +90,18 @@ def objective(trial):
 
 if __name__ == "__main__":
     start = time.time()
-    study = optuna.create_study(direction='maximize')
+    study = optuna.create_study(direction='maximize', sampler=optuna.samplers.TPESampler(seed=42))
     study.optimize(objective, n_trials=50)
     print(f"Search time: {time.time() - start:.1f}s")
     print("Best AUC:", study.best_value)
     print("Best params:", study.best_params)
+    # Persist results so they survive beyond this terminal session.
+    results = {
+        "best_auc": study.best_value,
+        "best_params": study.best_params,
+        "n_trials": len(study.trials),
+        "search_time_s": round(elapsed, 1),
+    }
+    with open("optuna_best_params_increased_n_est.json", "w") as f:
+        json.dump(results, f, indent=2)
+    print("Saved to optuna_best_params.json")

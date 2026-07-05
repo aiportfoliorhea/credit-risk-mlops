@@ -13,9 +13,7 @@ from sklearn.preprocessing import FunctionTransformer
 from prepare_dataset import prepare_data
 
 # ---- Data loading + cleaning (same as pipeline.py) ----
-X_train, X_test, y_train, y_test = prepare_data(merge_rare_org=True)
-X_train['NAME_EDUCATION_TYPE'] = X_train['NAME_EDUCATION_TYPE'].replace('Academic degree', 'Higher education')
-X_test['NAME_EDUCATION_TYPE'] = X_test['NAME_EDUCATION_TYPE'].replace('Academic degree', 'Higher education')
+X_train, X_test, y_train, y_test = prepare_data(merge_rare_fields_across_cat=True)
 
 # ---- Carve val split out of RAW X_train, BEFORE the preprocessor is fit ----
 # This must happen before preprocessor.fit_transforsm, otherwise WoE (a
@@ -69,10 +67,22 @@ best_params = {
     'colsample_bytree': 0.8143,
     'gamma': 2.3196,
 }
+feature_engg_best_params = {
+    'max_depth': 5, 
+    'learning_rate': 0.03616475500528253, 
+    'n_estimators': 376, 
+    'min_child_weight': 7, 
+    'subsample': 0.8811141285123267, 
+    'colsample_bytree': 0.6041836057038531, 
+    'gamma': 0.6781890863887554
+}
 
-with mlflow.start_run(run_name="final_model_maxdepth3"):
+# updated n-estimators to 800 ft engg updated numbers
+# Best params: {'max_depth': 3, 'learning_rate': 0.09964034718600043, 'n_estimators': 377, 'min_child_weight': 8, 'subsample': 0.9742636936312206, 'colsample_bytree': 0.6050501389679301, 'gamma': 2.034350998305848}
+
+with mlflow.start_run(run_name="feature_engg_best_param"):
     model = xgb.XGBClassifier(
-        **best_params,
+        **feature_engg_best_params,
         random_state=42,
         scale_pos_weight=(y_tr == 0).sum() / (y_tr == 1).sum(),
         eval_metric='auc',
@@ -83,7 +93,7 @@ with mlflow.start_run(run_name="final_model_maxdepth3"):
     y_pred_proba = model.predict_proba(X_test_transformed)[:, 1]
     test_auc = roc_auc_score(y_test, y_pred_proba)
 
-    for k, v in best_params.items():
+    for k, v in feature_engg_best_params.items():
         mlflow.log_param(k, v)
     mlflow.log_param("best_iteration", model.best_iteration)
     mlflow.log_param("scale_pos_weight", model.scale_pos_weight)
@@ -92,5 +102,5 @@ with mlflow.start_run(run_name="final_model_maxdepth3"):
     mlflow.sklearn.log_model(model, name="model")
     mlflow.log_metric("test_auc", test_auc)
     mlflow.log_metric("val_auc_best_iter", model.best_score)
-    print(f"Best iteration: {model.best_iteration} / {best_params['n_estimators']} ceiling")
+    print(f"Best iteration: {model.best_iteration} / {feature_engg_best_params['n_estimators']} ceiling")
     print(f"Test AUC: {test_auc:.4f}")
